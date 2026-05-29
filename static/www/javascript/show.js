@@ -261,7 +261,7 @@ window.addEventListener("load", function load(event){
 		var ne = bounds[1];
 		
 		if ((sw[0] == ne[0]) && (sw[1] == ne[1])){
-		    map.setView(sw, 12);
+		    map.setView(sw, local_cfg.max_zoom || 19);
 		} else {
 		    map.fitBounds(bounds);
 		}

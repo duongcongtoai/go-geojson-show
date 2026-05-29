@@ -42,19 +42,19 @@ whosonfirst.spelunker.geojson = (function(){
 			var _nelat = bbox[3];
 			var _nelon = bbox[2];
 			
-			if ((! swlat) || (_swlat < swlat)){
+			if ((swlat === undefined) || (_swlat < swlat)){
 			    swlat = _swlat;
 			}
 			
-			if ((! swlon) || (_swlon < swlon)){
+			if ((swlon === undefined) || (_swlon < swlon)){
 			    swlon = _swlon;
 			}
 			
-			if ((! nelat) || (_nelat > nelat)){
+			if ((nelat === undefined) || (_nelat > nelat)){
 			    nelat = _nelat;
 			}
 			
-			if ((! nelon) || (_nelon > nelon)){
+			if ((nelon === undefined) || (_nelon > nelon)){
 			    nelon = _nelon;
 			}
 		    }

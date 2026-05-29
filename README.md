@@ -14,15 +14,15 @@ Documentation (`godoc`) is incomplete at this time.
 
 ## Tools
 
-```
-$> make cli
-go build -ldflags="-s -w" -o bin/show cmd/show/main.go
+```bash
+# Compile and install from the local repository directory
+$> go install ./cmd/geojson-show
 ```
 
-To enable use the [WebViewBrowser `Browser` implementation](https://github.com/sfomuseum/go-www-show?tab=readme-ov-file#webviewbrowser-webview) tools will need to be build with the `webview` tag set. For example:
+To compile and install from a remote path:
 
-```
-$> go build -ldflags="-s -w" -tags webview -o bin/show cmd/show/main.go
+```bash
+$> go install github.com/duongcongtoai/go-geojson-show/cmd/geojson-show@latest
 ```
 
 ### geojsonfromhex
@@ -32,13 +32,13 @@ A utility command to parse Well-Known Binary (WKB) or Extended WKB (EWKB) hexade
 #### Compilation & Installation
 
 ```bash
-$> go install -o bin/geojsonfromhex cmd/geojsonfromhex/main.go
+$> go install ./cmd/geojsonfromhex
 ```
 
 #### Usage
 
 ```bash
-$> ./bin/geojsonfromhex <wkb_hex_string_1> [wkb_hex_string_2 ...]
+$> geojsonfromhex <wkb_hex_string_1> [wkb_hex_string_2 ...]
 ```
 
 #### Pipeline Integration
@@ -46,16 +46,16 @@ $> ./bin/geojsonfromhex <wkb_hex_string_1> [wkb_hex_string_2 ...]
 Pipe the parsed GeoJSON stream directly into `show` (making sure to specify the mandatory `-` stream argument at the end):
 
 ```bash
-$> ./bin/geojsonfromhex 0101000020e610000000000000000024400000000000003440 | ./bin/show -
+$> geojsonfromhex 0101000020e610000000000000000024400000000000003440 | geojson-show -
 ```
 
 ### show
 
 ```
-$> ./bin/show -h
+$> geojson-show -h
 Command-line tool for serving GeoJSON features from an on-demand web server.
 Usage:
-	 ./bin/show path(N) path(N)
+	 geojson-show path(N) path(N)
 Valid options are:
   -browser-uri string
     	A valid sfomuseum/go-www-show/v2.Browser URI. Valid options are: web:// (default "web://")
@@ -94,7 +94,7 @@ If the only path as input is "-" then data will be read from STDIN.
 ![](docs/images/go-geojson-show-simple.png)
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	/usr/local/data/sfomuseum-data-architecture/data/102/527/513/102527513.geojson
 	
 2024/08/13 13:01:44 Features are viewable at http://localhost:55799
@@ -106,7 +106,7 @@ $> ./bin/show \
 
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	/usr/local/data/sfomuseum-data-architecture/data/102/527/513/102527513.geojson \
 	/usr/local/data/oak.geojson
 	
@@ -118,7 +118,7 @@ $> ./bin/show \
 ![](docs/images/go-geojson-show-custom.png)
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	-map-tile-uri 'https://static.sfomuseum.org/aerial/1978/{z}/{x}/{-y}.png'
 	/usr/local/data/sfomuseum-data-architecture/data/102/527/513/102527513.geojson
 	
@@ -131,7 +131,7 @@ $> ./bin/show \
 
 ```
 $> cat /usr/local/data/sfomuseum-data-architecture/data/102/527/513/102527513.geojson | \
-	./bin/show \
+	geojson-show \
 	-map-provider protomaps \
 	-map-tile-uri file:///usr/local/sfomuseum/go-http-protomaps/cmd/example/sfo.pmtiles \
 	-protomaps-theme light \
@@ -146,7 +146,7 @@ $> cat /usr/local/data/sfomuseum-data-architecture/data/102/527/513/102527513.ge
 
 ```
 $> cat /usr/local/data/sfomuseum-data-architecture/data/102/527/513/102527513.geojson | \
-	./bin/show \
+	geojson-show \
 	-map-provider protomaps \
 	-map-tile-uri api://{APIKEY} \
 	-
@@ -159,7 +159,7 @@ $> cat /usr/local/data/sfomuseum-data-architecture/data/102/527/513/102527513.ge
 ![](docs/images/go-geojson-show-protomaps-esri-feature-layer.png)
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	-map-provider esri \
 	-esri-feature-layer https://{HOST}/arcgis/rest/services/{SERVICE}/MapServer/{LAYER} \
 	-label wof:name \
@@ -183,7 +183,7 @@ You can specify multiple ESRI feature layers and they will be displayed in the o
 ![](docs/images/go-geojson-show-styles.png)
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	-point-style '{"radius": 10, "color": "red", "fillColor": "orange" }' \
 	/usr/local/data/postcards.geojson
 	
@@ -197,7 +197,7 @@ See [styles.go](styles.go) for details about the structure of the `LeafletStyle`
 ![](docs/images/go-geojson-show-label.png)
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	-label wof:name \
 	-label wof:id \
 	/usr/local/data/postcards.geojson
@@ -212,7 +212,7 @@ When a marker is clicked the application will scroll that feature's string repre
 ![](docs/images/go-geojson-show-cluster.png)
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	-cluster-markers \
 	/usr/local/data/sfomuseum-data-publicart/work/publicart-all.geojson | 
 
@@ -224,7 +224,7 @@ $> ./bin/show \
 ![](docs/images/go-geojson-show-style-json.png)
 
 ```
-$> ./bin/show \
+$> geojson-show \
 	-label wof:name \
 	-label sfo:level \
 	-label mz:is_current \
