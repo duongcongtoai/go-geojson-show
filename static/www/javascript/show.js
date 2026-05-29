@@ -285,7 +285,8 @@ window.addEventListener("load", function load(event){
 			var tile_url = map_cfg.tile_url;
 			
 			var tile_layer = L.tileLayer(tile_url, {
-			    maxZoom: 19,
+			    maxZoom: local_cfg.max_zoom || 19,
+			    maxNativeZoom: 19,
 			});
 			
 			tile_layer.addTo(map);
@@ -383,6 +384,7 @@ window.addEventListener("load", function load(event){
 		    }
 		}
 
+		map.setMaxZoom(local_cfg.max_zoom || 19);
 		init(local_cfg, map_cfg);
 		
 	    }).catch((err) => {

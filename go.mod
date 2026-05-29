@@ -8,6 +8,7 @@ require (
 	github.com/sfomuseum/go-flags v0.12.1
 	github.com/sfomuseum/go-www-show/v2 v2.0.0
 	github.com/tidwall/gjson v1.18.0
+	github.com/twpayne/go-geom v1.6.1
 )
 
 require (

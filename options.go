@@ -26,6 +26,7 @@ type RunOptions struct {
 	ClusterMarkers       bool
 	Browser              www_show.Browser
 	Verbose              bool
+	MaxZoom              int
 }
 
 func RunOptionsFromFlagSet(ctx context.Context, fs *flag.FlagSet) (*RunOptions, error) {
@@ -45,6 +46,7 @@ func RunOptionsFromFlagSet(ctx context.Context, fs *flag.FlagSet) (*RunOptions, 
 		LabelProperties:      label_properties,
 		ClusterMarkers:       cluster_markers,
 		Verbose:              verbose,
+		MaxZoom:              max_zoom,
 	}
 
 	if len(panes) > 0 {

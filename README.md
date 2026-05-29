@@ -16,13 +16,37 @@ Documentation (`godoc`) is incomplete at this time.
 
 ```
 $> make cli
-go build -mod vendor -ldflags="-s -w" -o bin/show cmd/show/main.go
+go build -ldflags="-s -w" -o bin/show cmd/show/main.go
 ```
 
 To enable use the [WebViewBrowser `Browser` implementation](https://github.com/sfomuseum/go-www-show?tab=readme-ov-file#webviewbrowser-webview) tools will need to be build with the `webview` tag set. For example:
 
 ```
-$> go build -mod vendor -ldflags="-s -w" -tags webview -o bin/show cmd/show/main.go
+$> go build -ldflags="-s -w" -tags webview -o bin/show cmd/show/main.go
+```
+
+### geojsonfromhex
+
+A utility command to parse Well-Known Binary (WKB) or Extended WKB (EWKB) hexadecimal geometry strings from spatial databases (such as PostGIS) and output them as a clean, standardized GeoJSON `FeatureCollection` payload with populated metadata. It handles SQL prefixes (`\x`, `0x`, `0X`) and quotes gracefully, and attempts fallback parsing (EWKB -> WKB) automatically.
+
+#### Compilation & Installation
+
+```bash
+$> go install -o bin/geojsonfromhex cmd/geojsonfromhex/main.go
+```
+
+#### Usage
+
+```bash
+$> ./bin/geojsonfromhex <wkb_hex_string_1> [wkb_hex_string_2 ...]
+```
+
+#### Pipeline Integration
+
+Pipe the parsed GeoJSON stream directly into `show` (making sure to specify the mandatory `-` stream argument at the end):
+
+```bash
+$> ./bin/geojsonfromhex 0101000020e610000000000000000024400000000000003440 | ./bin/show -
 ```
 
 ### show

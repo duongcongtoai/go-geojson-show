@@ -12,6 +12,7 @@ import (
 )
 
 var port int
+var max_zoom int
 
 var browser_uri string
 
@@ -47,6 +48,7 @@ func DefaultFlagSet() *flag.FlagSet {
 	fs.StringVar(&map_tile_uri, "map-tile-uri", leaflet_osm_tile_url, "A valid Leaflet tile layer URI. See documentation for special-case (interpolated tile) URIs.")
 	fs.StringVar(&protomaps_theme, "protomaps-theme", "white", "A valid Protomaps theme label.")
 	fs.IntVar(&protomaps_max_data_zoom, "protomaps-max-data-zoom", 0, "The maximum zoom (tile) level for data in a PMTiles database. Necessary for \"over-zooming\".")
+	fs.IntVar(&max_zoom, "max-zoom", 19, "The maximum zoom level for the Leaflet map and tile layer. Necessary for \"over-zooming\" on extremely small objects.")
 
 	fs.Var(&esri_feature_layers, "esri-feature-layer", "One or more ESRI Feature layer URIs to use as a base map. Required if -map-provider is 'esri'.")
 

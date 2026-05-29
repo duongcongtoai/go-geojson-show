@@ -11,6 +11,8 @@ type LocalConfig struct {
 	ClusterMarkers bool `json:"cluster_markers"`
 	// One or more URIs to load using the L.esri.featureLayer method. Required if map provider is "leaflet".
 	ESRIFeatureLayers []string `json:"esri_feature_layers"`
+	// The maximum zoom level for Leaflet maps and tile layers.
+	MaxZoom           int      `json:"max_zoom"`
 }
 
 // LocalConfigHandler returns an `http.Handler` instance that when called will return 'cfg' as a JSON-encoded string.
