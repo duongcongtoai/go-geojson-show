@@ -49,6 +49,28 @@ Pipe the parsed GeoJSON stream directly into `show` (making sure to specify the 
 $> geojsonfromhex 0101000020e610000000000000000024400000000000003440 | geojson-show -
 ```
 
+### geojsonfromcsv
+
+A resilient utility command to parse CSV files containing geometry hexstrings and translate them into standard GeoJSON features. It supports double-quotes stripping, header row auto-mapping, Excel separator directives (`sep=;`), empty row filtering, and preserves other metadata columns under each feature's `properties` map.
+
+#### Compilation & Installation
+
+```bash
+$> go install ./cmd/geojsonfromcsv
+```
+
+#### Usage
+
+```bash
+$> geojsonfromcsv <csv_file_path>
+```
+
+#### Pipeline Integration
+
+```bash
+$> geojsonfromcsv geometries.csv | geojson-show -label name -
+```
+
 ### show
 
 ```

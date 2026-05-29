@@ -3,9 +3,34 @@ window.addEventListener("load", function load(event){
     // Null Island
     const map = L.map('map').setView([0.0, 0.0], 12);
 
+    // Global scope variables for bidirectional map highlights
+    var idToLayerMap = {};
+    var activeHighlightedLayer = null;
+    var originalStyle = null;
+    var markerClusterGroup = null;
+
     const applyCustomStyles = function(feature, style){
 
-	if (! "custom" in style){
+	if (feature && feature.properties) {
+	    if (feature.properties.color) {
+		style.color = feature.properties.color;
+		style.fillColor = feature.properties.color;
+	    }
+	    if (feature.properties.fillColor) {
+		style.fillColor = feature.properties.fillColor;
+	    }
+	    if (feature.properties.weight) {
+		style.weight = feature.properties.weight;
+	    }
+	    if (feature.properties.opacity) {
+		style.opacity = feature.properties.opacity;
+	    }
+	    if (feature.properties.offset !== undefined) {
+		style.offset = Number(feature.properties.offset);
+	    }
+	}
+
+	if (!style || !("custom" in style) || !style.custom){
 	    return style;
 	}
 	
@@ -115,7 +140,81 @@ window.addEventListener("load", function load(event){
 	}
     };
 
+    const clearMapHighlights = function() {
+        if (activeHighlightedLayer && originalStyle) {
+            if (typeof activeHighlightedLayer.setStyle === "function") {
+                activeHighlightedLayer.setStyle(originalStyle);
+            } else if (typeof activeHighlightedLayer.setOpacity === "function") {
+                activeHighlightedLayer.setOpacity(originalStyle.opacity);
+            }
+            activeHighlightedLayer = null;
+            originalStyle = null;
+        }
+    };
+
+    const highlightMapElement = function(show_id) {
+        // 1. Clear any previous highlights
+        clearMapHighlights();
+
+        var layer = idToLayerMap[show_id];
+        if (!layer) return;
+
+        // 2. Select corresponding JSON block visually
+        select(show_id);
+
+        // 3. Keep track of original style and apply Bold Contrast Style
+        if (typeof layer.setStyle === "function") {
+            originalStyle = {
+                color: layer.options.color,
+                fillColor: layer.options.fillColor,
+                weight: layer.options.weight,
+                opacity: layer.options.opacity,
+                radius: layer.options.radius
+            };
+
+            if (layer instanceof L.CircleMarker) {
+                layer.setStyle({
+                    color: "#00ffff",     // Bright cyan border
+                    fillColor: "#ff00ff", // Bright magenta fill
+                    radius: 14,
+                    weight: 3
+                });
+            } else {
+                layer.setStyle({
+                    color: "#ff00ff",     // Bright fuchsia stroke
+                    weight: 8,            // Bold line
+                    opacity: 1.0
+                });
+            }
+            activeHighlightedLayer = layer;
+        } else if (typeof layer.setOpacity === "function") {
+            originalStyle = { opacity: layer.options.opacity || 1.0 };
+            layer.setOpacity(1.0);
+            activeHighlightedLayer = layer;
+        }
+
+        // 4. Bring Vector to the Front (so it is not hidden behind other overlapping lines)
+        if (typeof layer.bringToFront === "function") {
+            layer.bringToFront();
+        }
+
+        // 5. Dynamic Map Zoom/Center and Cluster Spiderfying
+        if (markerClusterGroup && typeof markerClusterGroup.zoomToShowLayer === "function") {
+            markerClusterGroup.zoomToShowLayer(layer, function() {
+                layer.openPopup();
+            });
+        } else {
+            if (typeof layer.getBounds === "function") {
+                map.fitBounds(layer.getBounds(), { maxZoom: 24, padding: [30, 30] });
+            } else if (typeof layer.getLatLng === "function") {
+                map.setView(layer.getLatLng(), Math.max(map.getZoom(), 22));
+                layer.openPopup();
+            }
+        }
+    };
+
     map.on("click", function(e){
+	clearMapHighlights();
 	unselect();
     });
     
@@ -131,6 +230,59 @@ window.addEventListener("load", function load(event){
 		for (var i=0; i < count; i++){
 		    var show_id = "show-" + (i+1);
 		    f.features[i]["properties"]["show:id"] = show_id;
+		}
+
+		// Auto-detect overlapping polylines and assign staggered offsets
+		var lineGroups = {};
+		var pointGroups = {};
+		
+		for (var i = 0; i < count; i++) {
+		    var feat = f.features[i];
+		    if (feat.geometry) {
+		        if (feat.geometry.type === 'LineString' || feat.geometry.type === 'MultiLineString') {
+		            var coordKey = JSON.stringify(feat.geometry.coordinates);
+		            if (!lineGroups[coordKey]) {
+		                lineGroups[coordKey] = [];
+		            }
+		            lineGroups[coordKey].push(feat);
+		        } else if (feat.geometry.type === 'Point') {
+		            var coordKey = JSON.stringify(feat.geometry.coordinates);
+		            if (!pointGroups[coordKey]) {
+		                pointGroups[coordKey] = [];
+		            }
+		            pointGroups[coordKey].push(feat);
+		        }
+		    }
+		}
+
+		// Stagger offsets for overlapping line groups (using Leaflet.PolylineOffset spacing)
+		var lineSpacing = 6; // pixels spacing between parallel lines
+		for (var key in lineGroups) {
+		    var group = lineGroups[key];
+		    if (group.length > 1) {
+		        for (var j = 0; j < group.length; j++) {
+		            var multiplier = Math.floor((j + 1) / 2);
+		            var sign = (j % 2 === 0) ? 1 : -1;
+		            if (j === 0) {
+		                group[j].properties.offset = 0;
+		            } else {
+		                group[j].properties.offset = sign * multiplier * lineSpacing;
+		            }
+		        }
+		    }
+		}
+
+		// Symmetrically fan out overlapping points around their shared coordinate
+		var pointRadius = 12; // pixel radius offset
+		for (var key in pointGroups) {
+		    var group = pointGroups[key];
+		    if (group.length > 1) {
+		        for (var j = 0; j < group.length; j++) {
+		            var angle = (j * 2 * Math.PI) / group.length;
+		            group[j].properties.offset_x = Math.round(pointRadius * Math.cos(angle));
+		            group[j].properties.offset_y = Math.round(pointRadius * Math.sin(angle));
+		        }
+		    }
 		}
 		
 		var raw_el = document.querySelector("#raw");
@@ -152,6 +304,12 @@ window.addEventListener("load", function load(event){
 		    var pre = document.createElement("pre");
 		    pre.setAttribute("id", show_id);
 		    pre.appendChild(document.createTextNode(str));		    
+		    
+		    // Click JSON text to highlight the corresponding map geometry
+		    pre.addEventListener("click", function() {
+		        highlightMapElement(show_id);
+		    });
+
 		    raw_el.appendChild(pre);
 		};
 		
@@ -187,9 +345,11 @@ window.addEventListener("load", function load(event){
 		var geojson_args = {
 		    
 		    onEachFeature: function (feature, layer) {
+			var show_id = feature["properties"]["show:id"];
+			idToLayerMap[show_id] = layer;
 
 			layer.on("click", function(e){			    
-			    var show_id = feature["properties"]["show:id"];
+			    clearMapHighlights();
 			    select(show_id);
 			});
 
@@ -229,21 +389,94 @@ window.addEventListener("load", function load(event){
 		    }
 		};
 
-		if ((map_cfg.leaflet) && (map_cfg.leaflet.style)){
-		    // This doesn't work because we don't know what feature is...
-		    // const style = applyCustomStyles(feature, map_cfg.leaflet.style);
-		    const style = map_cfg.leaflet.style;
-		    geojson_args.style = style;
-		}
+		// Always define geojson style to support dynamic feature color overrides natively
+		geojson_args.style = function(feature) {
+			const base_style = (map_cfg.leaflet && map_cfg.leaflet.style) ? 
+				structuredClone(map_cfg.leaflet.style) : 
+				{ "weight": 3, "opacity": 0.8 };
+			return applyCustomStyles(feature, base_style);
+		};
 
-		if ((map_cfg.leaflet) && (map_cfg.leaflet.point_style)){
+		// Always define pointToLayer to support dynamic vector circle colors for points
+		geojson_args.pointToLayer = function (feature, latlng) {
+			const base_style = (map_cfg.leaflet && map_cfg.leaflet.point_style) ? 
+				structuredClone(map_cfg.leaflet.point_style) : 
+				{ "radius": 8, "weight": 1, "opacity": 1, "fillOpacity": 0.8 };
+				
+			const final_style = applyCustomStyles(feature, base_style);
+			
+			// Detect custom offsets for points (pixel translations)
+			let offsetX = 0;
+			let offsetY = 0;
+			if (feature.properties) {
+				if (feature.properties.offset_x !== undefined) {
+					offsetX = Number(feature.properties.offset_x);
+				}
+				if (feature.properties.offset_y !== undefined) {
+					offsetY = Number(feature.properties.offset_y);
+				}
+				// Simple fallback if only 'offset' is defined (offset horizontally)
+				if (feature.properties.offset !== undefined && offsetX === 0 && offsetY === 0) {
+					offsetX = Number(feature.properties.offset);
+				}
+			}
 
-		    geojson_args.pointToLayer = function (feature, latlng) {
-			const style = applyCustomStyles(feature, map_cfg.leaflet.point_style);			
-			return L.circleMarker(latlng, style);
-		    }
-		    
-		}
+			// If color/styles are overridden, render as circular points
+			if ((feature.properties && feature.properties.color) || (map_cfg.leaflet && map_cfg.leaflet.point_style)) {
+				// Dynamic offset rendering using L.divIcon & standard CSS
+				if (offsetX !== 0 || offsetY !== 0) {
+					const size = (final_style.radius || 8) * 2;
+					const color = final_style.fillColor || final_style.color || "blue";
+					const border_color = final_style.color || "#ffffff";
+					const border_weight = final_style.weight || 1;
+					const op = final_style.fillOpacity || 0.8;
+
+					const divIcon = L.divIcon({
+						className: 'custom-offset-circle',
+						iconSize: [size, size],
+						iconAnchor: [(size / 2) - offsetX, (size / 2) - offsetY],
+						popupAnchor: [offsetX, - (size / 2) + offsetY],
+						html: `<div style="
+							width: ${size}px; 
+							height: ${size}px; 
+							background-color: ${color}; 
+							border: ${border_weight}px solid ${border_color}; 
+							border-radius: 50%; 
+							opacity: ${op};">
+						</div>`
+					});
+					return L.marker(latlng, { icon: divIcon });
+				}
+				return L.circleMarker(latlng, final_style);
+			}
+
+			// For standard markers, apply offset if defined
+			if (offsetX !== 0 || offsetY !== 0) {
+				const defaultIcon = new L.Icon.Default();
+				const shiftedIcon = L.icon({
+					iconUrl: defaultIcon.options.iconUrl,
+					iconRetinaUrl: defaultIcon.options.iconRetinaUrl,
+					shadowUrl: defaultIcon.options.shadowUrl,
+					iconSize: defaultIcon.options.iconSize,
+					iconAnchor: [
+						defaultIcon.options.iconAnchor[0] - offsetX,
+						defaultIcon.options.iconAnchor[1] - offsetY
+					],
+					popupAnchor: [
+						defaultIcon.options.popupAnchor[0] - offsetX,
+						defaultIcon.options.popupAnchor[1] - offsetY
+					],
+					shadowSize: defaultIcon.options.shadowSize,
+					shadowAnchor: defaultIcon.options.shadowAnchor ? [
+						defaultIcon.options.shadowAnchor[0] - offsetX,
+						defaultIcon.options.shadowAnchor[1] - offsetY
+					] : undefined
+				});
+				return L.marker(latlng, { icon: shiftedIcon });
+			}
+
+			return L.marker(latlng);
+		};
 
 		var geojson_layer = L.geoJSON(f, geojson_args);
 
@@ -251,6 +484,7 @@ window.addEventListener("load", function load(event){
 		    const markers = L.markerClusterGroup();
 		    markers.addLayer(geojson_layer);
 		    markers.addTo(map);
+		    markerClusterGroup = markers;
 		} else {
 		    geojson_layer.addTo(map);
 		}

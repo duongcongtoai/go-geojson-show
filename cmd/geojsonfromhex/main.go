@@ -62,7 +62,6 @@ func main() {
 	for i, rawHexStr := range os.Args[1:] {
 		hexStr := cleanHex(rawHexStr)
 		if len(hexStr) == 0 {
-			log.Printf("Error processing argument %d: Empty hex string", i+1)
 			continue
 		}
 
