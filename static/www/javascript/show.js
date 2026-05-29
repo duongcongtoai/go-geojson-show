@@ -126,7 +126,7 @@ window.addEventListener("load", function load(event){
 	
 	if (el){
 	    el.setAttribute("class", "selected");
-	    el.scrollIntoView();
+	    // el.scrollIntoView();
 	}
 	
     };
@@ -174,15 +174,15 @@ window.addEventListener("load", function load(event){
 
             if (layer instanceof L.CircleMarker) {
                 layer.setStyle({
-                    color: "#00ffff",     // Bright cyan border
-                    fillColor: "#ff00ff", // Bright magenta fill
+                    color: originalStyle.color,
+                    fillColor: originalStyle.fillColor,
                     radius: 14,
                     weight: 3
                 });
             } else {
                 layer.setStyle({
-                    color: "#ff00ff",     // Bright fuchsia stroke
-                    weight: 8,            // Bold line
+                    color: originalStyle.color,
+                    weight: 8,
                     opacity: 1.0
                 });
             }
