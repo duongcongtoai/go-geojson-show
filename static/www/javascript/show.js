@@ -9,6 +9,15 @@ window.addEventListener("load", function load(event){
     var originalStyle = null;
     var markerClusterGroup = null;
 
+    // New Global State Variables for Stateful UI
+    let initialFeatures = [];
+    let allFeatures = [];
+    let overlapHandlingEnabled = true;
+    let currentGeojsonLayer = null;
+    let mapInitialized = false;
+    let local_cfg_global = null;
+    let map_cfg_global = null;
+
     const applyCustomStyles = function(feature, style){
 
 	if (feature && feature.properties) {
@@ -218,11 +227,29 @@ window.addEventListener("load", function load(event){
 	unselect();
     });
     
-    const init = function(local_cfg, map_cfg) {
+    const renderData = function(local_cfg, map_cfg) {
+		// Clean up existing map elements
+		if (currentGeojsonLayer) {
+			map.removeLayer(currentGeojsonLayer);
+		}
+		if (markerClusterGroup) {
+			map.removeLayer(markerClusterGroup);
+			markerClusterGroup = null;
+		}
+		idToLayerMap = {};
+		activeHighlightedLayer = null;
+		originalStyle = null;
 
-	fetch("/features.geojson")
-	    .then((rsp) => rsp.json())
-	    .then((f) => {
+		var raw_el = document.querySelector("#raw");
+		if (raw_el) {
+			raw_el.innerHTML = '';
+		}
+
+		// Create a deep copy to process (so we can toggle offsets on/off without permanently modifying features)
+		const f = {
+			type: "FeatureCollection",
+			features: structuredClone(allFeatures)
+		};
 
 		var features = f.features;
 		var count = features.length;
@@ -232,61 +259,61 @@ window.addEventListener("load", function load(event){
 		    f.features[i]["properties"]["show:id"] = show_id;
 		}
 
-		// Auto-detect overlapping polylines and assign staggered offsets
-		var lineGroups = {};
-		var pointGroups = {};
-		
-		for (var i = 0; i < count; i++) {
-		    var feat = f.features[i];
-		    if (feat.geometry) {
-		        if (feat.geometry.type === 'LineString' || feat.geometry.type === 'MultiLineString') {
-		            var coordKey = JSON.stringify(feat.geometry.coordinates);
-		            if (!lineGroups[coordKey]) {
-		                lineGroups[coordKey] = [];
-		            }
-		            lineGroups[coordKey].push(feat);
-		        } else if (feat.geometry.type === 'Point') {
-		            var coordKey = JSON.stringify(feat.geometry.coordinates);
-		            if (!pointGroups[coordKey]) {
-		                pointGroups[coordKey] = [];
-		            }
-		            pointGroups[coordKey].push(feat);
-		        }
-		    }
+		if (overlapHandlingEnabled) {
+			// Auto-detect overlapping polylines and assign staggered offsets
+			var lineGroups = {};
+			var pointGroups = {};
+			
+			for (var i = 0; i < count; i++) {
+				var feat = f.features[i];
+				if (feat.geometry) {
+					if (feat.geometry.type === 'LineString' || feat.geometry.type === 'MultiLineString') {
+						var coordKey = JSON.stringify(feat.geometry.coordinates);
+						if (!lineGroups[coordKey]) {
+							lineGroups[coordKey] = [];
+						}
+						lineGroups[coordKey].push(feat);
+					} else if (feat.geometry.type === 'Point') {
+						var coordKey = JSON.stringify(feat.geometry.coordinates);
+						if (!pointGroups[coordKey]) {
+							pointGroups[coordKey] = [];
+						}
+						pointGroups[coordKey].push(feat);
+					}
+				}
+			}
+
+			// Stagger offsets for overlapping line groups (using Leaflet.PolylineOffset spacing)
+			var lineSpacing = 6; // pixels spacing between parallel lines
+			for (var key in lineGroups) {
+				var group = lineGroups[key];
+				if (group.length > 1) {
+					for (var j = 0; j < group.length; j++) {
+						var multiplier = Math.floor((j + 1) / 2);
+						var sign = (j % 2 === 0) ? 1 : -1;
+						if (j === 0) {
+							group[j].properties.offset = 0;
+						} else {
+							group[j].properties.offset = sign * multiplier * lineSpacing;
+						}
+					}
+				}
+			}
+
+			// Symmetrically fan out overlapping points around their shared coordinate
+			var pointRadius = 12; // pixel radius offset
+			for (var key in pointGroups) {
+				var group = pointGroups[key];
+				if (group.length > 1) {
+					for (var j = 0; j < group.length; j++) {
+						var angle = (j * 2 * Math.PI) / group.length;
+						group[j].properties.offset_x = Math.round(pointRadius * Math.cos(angle));
+						group[j].properties.offset_y = Math.round(pointRadius * Math.sin(angle));
+					}
+				}
+			}
 		}
 
-		// Stagger offsets for overlapping line groups (using Leaflet.PolylineOffset spacing)
-		var lineSpacing = 6; // pixels spacing between parallel lines
-		for (var key in lineGroups) {
-		    var group = lineGroups[key];
-		    if (group.length > 1) {
-		        for (var j = 0; j < group.length; j++) {
-		            var multiplier = Math.floor((j + 1) / 2);
-		            var sign = (j % 2 === 0) ? 1 : -1;
-		            if (j === 0) {
-		                group[j].properties.offset = 0;
-		            } else {
-		                group[j].properties.offset = sign * multiplier * lineSpacing;
-		            }
-		        }
-		    }
-		}
-
-		// Symmetrically fan out overlapping points around their shared coordinate
-		var pointRadius = 12; // pixel radius offset
-		for (var key in pointGroups) {
-		    var group = pointGroups[key];
-		    if (group.length > 1) {
-		        for (var j = 0; j < group.length; j++) {
-		            var angle = (j * 2 * Math.PI) / group.length;
-		            group[j].properties.offset_x = Math.round(pointRadius * Math.cos(angle));
-		            group[j].properties.offset_y = Math.round(pointRadius * Math.sin(angle));
-		        }
-		    }
-		}
-		
-		var raw_el = document.querySelector("#raw");
-		
 		var format = function(show_id, str){
 		    
 		    // Remember: wof_format is defined by the /wasm/wof_format.wasm binary.
@@ -479,6 +506,7 @@ window.addEventListener("load", function load(event){
 		};
 
 		var geojson_layer = L.geoJSON(f, geojson_args);
+		currentGeojsonLayer = geojson_layer;
 
 		if (local_cfg.cluster_markers){
 		    const markers = L.markerClusterGroup();
@@ -489,21 +517,35 @@ window.addEventListener("load", function load(event){
 		    geojson_layer.addTo(map);
 		}
 		
-		var bounds = whosonfirst.spelunker.geojson.derive_bounds(f);
-		
-		var sw = bounds[0];
-		var ne = bounds[1];
-		
-		if ((sw[0] == ne[0]) && (sw[1] == ne[1])){
-		    map.setView(sw, local_cfg.max_zoom || 19);
-		} else {
-		    map.fitBounds(bounds);
+		if (count > 0) {
+			var bounds = whosonfirst.spelunker.geojson.derive_bounds(f);
+			
+			var sw = bounds[0];
+			var ne = bounds[1];
+			
+			if ((sw[0] == ne[0]) && (sw[1] == ne[1])){
+				map.setView(sw, local_cfg.max_zoom || 19);
+			} else {
+				map.fitBounds(bounds);
+			}
 		}
-		
-	    }).catch((err) => {
-		console.error("Failed to render features", err);
-	    });
     };
+
+    const init = function(local_cfg, map_cfg) {
+		local_cfg_global = local_cfg;
+		map_cfg_global = map_cfg;
+		mapInitialized = true;
+
+		fetch("/features.geojson")
+			.then((rsp) => rsp.json())
+			.then((f) => {
+				initialFeatures = structuredClone(f.features || []);
+				allFeatures = structuredClone(initialFeatures);
+				renderData(local_cfg, map_cfg);
+			}).catch((err) => {
+				console.error("Failed to fetch features", err);
+			});
+	};
 
     fetch("/config.json").then(rsp =>
 	rsp.json()
@@ -629,4 +671,84 @@ window.addEventListener("load", function load(event){
 	console.error("Failed to retrieve local cfg", err);
     });
     
+    // Toggle Overlap Engine On/Off
+    const toggleEl = document.getElementById("toggle-overlap");
+    if (toggleEl) {
+        toggleEl.addEventListener("change", function(e) {
+            overlapHandlingEnabled = e.target.checked;
+            if (allFeatures.length > 0 && mapInitialized) {
+                renderData(local_cfg_global, map_cfg_global); // Trigger a full re-render
+            }
+        });
+    }
+
+    // Parse Pasted GeoJSON
+    const btnEl = document.getElementById("add-geojson");
+    if (btnEl) {
+        btnEl.addEventListener("click", function() {
+            const idInput = document.getElementById("feature-id").value.trim();
+            const nameInput = document.getElementById("feature-name").value.trim();
+            const colorInput = document.getElementById("feature-color").value.trim();
+            const textArea = document.getElementById("paste-geojson");
+
+            if (!idInput) {
+                alert("Please provide an ID for the new feature.");
+                return;
+            }
+
+            if (!textArea.value.trim()) return;
+            try {
+                const pasted = JSON.parse(textArea.value);
+                
+                let featsToAdd = [];
+                if (pasted.type === "FeatureCollection") {
+                    featsToAdd = pasted.features;
+                } else if (pasted.type === "Feature") {
+                    featsToAdd = [pasted];
+                } else {
+                    alert("Invalid GeoJSON: Must be a Feature or FeatureCollection."); return;
+                }
+
+                featsToAdd.forEach(f => {
+                    f.properties = f.properties || {};
+                    f.properties.id = idInput;
+                    if (nameInput) f.properties.name = nameInput;
+                    if (colorInput) f.properties.color = colorInput;
+                });
+
+                allFeatures = allFeatures.concat(featsToAdd);
+                textArea.value = ""; // Clear input
+                if (mapInitialized) renderData(local_cfg_global, map_cfg_global); // Trigger re-render
+            } catch (e) {
+                alert("Invalid JSON data pasted.");
+            }
+        });
+    }
+
+    // Delete Pasted GeoJSON by ID
+    const delEl = document.getElementById("delete-geojson");
+    if (delEl) {
+        delEl.addEventListener("click", function() {
+            const idInput = document.getElementById("feature-id").value.trim();
+            if (!idInput) {
+                alert("Please provide an ID to delete.");
+                return;
+            }
+            
+            const beforeCount = allFeatures.length;
+            // Remove features that have the matching ID
+            allFeatures = allFeatures.filter(f => {
+                if (f.properties && f.properties.id !== undefined) {
+                    return String(f.properties.id) !== idInput;
+                }
+                return true;
+            });
+            
+            if (allFeatures.length < beforeCount) {
+                if (mapInitialized) renderData(local_cfg_global, map_cfg_global);
+            } else {
+                alert("No feature found with ID: " + idInput);
+            }
+        });
+    }
 });
