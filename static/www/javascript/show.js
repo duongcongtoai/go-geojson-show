@@ -151,11 +151,14 @@ window.addEventListener("load", function load(event){
 
     const clearMapHighlights = function() {
         if (activeHighlightedLayer && originalStyle) {
-            if (typeof activeHighlightedLayer.setStyle === "function") {
-                activeHighlightedLayer.setStyle(originalStyle);
-            } else if (typeof activeHighlightedLayer.setOpacity === "function") {
-                activeHighlightedLayer.setOpacity(originalStyle.opacity);
-            }
+            let layers = Array.isArray(activeHighlightedLayer) ? activeHighlightedLayer : [activeHighlightedLayer];
+            layers.forEach(layer => {
+                if (typeof layer.setStyle === "function") {
+                    layer.setStyle(originalStyle);
+                } else if (typeof layer.setOpacity === "function") {
+                    layer.setOpacity(originalStyle.opacity);
+                }
+            });
             activeHighlightedLayer = null;
             originalStyle = null;
         }
@@ -165,59 +168,77 @@ window.addEventListener("load", function load(event){
         // 1. Clear any previous highlights
         clearMapHighlights();
 
-        var layer = idToLayerMap[show_id];
-        if (!layer) return;
+        var layers = idToLayerMap[show_id];
+        if (!layers || (Array.isArray(layers) && layers.length === 0)) return;
+        
+        // Ensure it is an array
+        if (!Array.isArray(layers)) {
+            layers = [layers];
+        }
 
         // 2. Select corresponding JSON block visually
         select(show_id);
 
         // 3. Keep track of original style and apply Bold Contrast Style
-        if (typeof layer.setStyle === "function") {
+        let firstLayer = layers[0];
+        if (typeof firstLayer.setStyle === "function") {
             originalStyle = {
-                color: layer.options.color,
-                fillColor: layer.options.fillColor,
-                weight: layer.options.weight,
-                opacity: layer.options.opacity,
-                radius: layer.options.radius
+                color: firstLayer.options.color,
+                fillColor: firstLayer.options.fillColor,
+                weight: firstLayer.options.weight,
+                opacity: firstLayer.options.opacity,
+                radius: firstLayer.options.radius
             };
 
-            if (layer instanceof L.CircleMarker) {
-                layer.setStyle({
-                    color: originalStyle.color,
-                    fillColor: originalStyle.fillColor,
-                    radius: 14,
-                    weight: 3
-                });
-            } else {
-                layer.setStyle({
-                    color: originalStyle.color,
-                    weight: 8,
-                    opacity: 1.0
-                });
-            }
-            activeHighlightedLayer = layer;
-        } else if (typeof layer.setOpacity === "function") {
-            originalStyle = { opacity: layer.options.opacity || 1.0 };
-            layer.setOpacity(1.0);
-            activeHighlightedLayer = layer;
+            layers.forEach(layer => {
+                if (layer instanceof L.CircleMarker) {
+                    layer.setStyle({
+                        color: originalStyle.color,
+                        fillColor: originalStyle.fillColor,
+                        radius: 14,
+                        weight: 3
+                    });
+                } else {
+                    layer.setStyle({
+                        color: originalStyle.color,
+                        weight: 8,
+                        opacity: 1.0
+                    });
+                }
+            });
+            activeHighlightedLayer = layers;
+        } else if (typeof firstLayer.setOpacity === "function") {
+            originalStyle = { opacity: firstLayer.options.opacity || 1.0 };
+            layers.forEach(layer => {
+                layer.setOpacity(1.0);
+            });
+            activeHighlightedLayer = layers;
         }
 
         // 4. Bring Vector to the Front (so it is not hidden behind other overlapping lines)
-        if (typeof layer.bringToFront === "function") {
-            layer.bringToFront();
-        }
+        layers.forEach(layer => {
+            if (typeof layer.bringToFront === "function") {
+                layer.bringToFront();
+            }
+        });
 
         // 5. Dynamic Map Zoom/Center and Cluster Spiderfying
         if (markerClusterGroup && typeof markerClusterGroup.zoomToShowLayer === "function") {
-            markerClusterGroup.zoomToShowLayer(layer, function() {
-                layer.openPopup();
+            markerClusterGroup.zoomToShowLayer(firstLayer, function() {
+                firstLayer.openPopup();
             });
         } else {
-            if (typeof layer.getBounds === "function") {
-                map.fitBounds(layer.getBounds(), { maxZoom: 24, padding: [30, 30] });
-            } else if (typeof layer.getLatLng === "function") {
-                map.setView(layer.getLatLng(), Math.max(map.getZoom(), 22));
-                layer.openPopup();
+            if (typeof firstLayer.getBounds === "function") {
+                let bounds = firstLayer.getBounds();
+                layers.forEach(l => {
+                    if (typeof l.getBounds === "function") {
+                        bounds.extend(l.getBounds());
+                    }
+                });
+                map.fitBounds(bounds, { maxZoom: 24, padding: [30, 30] });
+            } else if (typeof firstLayer.getLatLng === "function") {
+                map.setView(firstLayer.getLatLng(), Math.max(map.getZoom(), 22));
+                firstLayer.openPopup();
             }
         }
     };
@@ -260,19 +281,32 @@ window.addEventListener("load", function load(event){
 		}
 
 		if (overlapHandlingEnabled) {
-			// Auto-detect overlapping polylines and assign staggered offsets
-			var lineGroups = {};
+			// Helper to normalize coordinates for lines regardless of direction
+			const getNormalizedLineKey = function(coords) {
+				const strFwd = JSON.stringify(coords);
+				const strRev = JSON.stringify([...coords].reverse());
+				return strFwd < strRev ? strFwd : strRev;
+			};
+
+			var segmentToFeatures = {};
 			var pointGroups = {};
-			
+
+			// 1. Hash segments and points
 			for (var i = 0; i < count; i++) {
 				var feat = f.features[i];
 				if (feat.geometry) {
 					if (feat.geometry.type === 'LineString' || feat.geometry.type === 'MultiLineString') {
-						var coordKey = JSON.stringify(feat.geometry.coordinates);
-						if (!lineGroups[coordKey]) {
-							lineGroups[coordKey] = [];
-						}
-						lineGroups[coordKey].push(feat);
+						let lines = feat.geometry.type === 'LineString' ? [feat.geometry.coordinates] : feat.geometry.coordinates;
+						lines.forEach(line => {
+							for (let k = 0; k < line.length - 1; k++) {
+								let segment = [line[k], line[k+1]];
+								let key = getNormalizedLineKey(segment);
+								if (!segmentToFeatures[key]) {
+									segmentToFeatures[key] = new Set();
+								}
+								segmentToFeatures[key].add(feat.properties["show:id"]);
+							}
+						});
 					} else if (feat.geometry.type === 'Point') {
 						var coordKey = JSON.stringify(feat.geometry.coordinates);
 						if (!pointGroups[coordKey]) {
@@ -283,12 +317,75 @@ window.addEventListener("load", function load(event){
 				}
 			}
 
+			// 2. Split overlapping features into segments
+			let newFeatures = [];
+			for (var i = 0; i < count; i++) {
+				var feat = f.features[i];
+				if (feat.geometry && (feat.geometry.type === 'LineString' || feat.geometry.type === 'MultiLineString')) {
+					let lines = feat.geometry.type === 'LineString' ? [feat.geometry.coordinates] : feat.geometry.coordinates;
+					
+					lines.forEach(line => {
+						let currentSegmentCoords = [line[0]];
+						let currentOverlapKey = null;
+
+						for (let k = 0; k < line.length - 1; k++) {
+							let segment = [line[k], line[k+1]];
+							let key = getNormalizedLineKey(segment);
+							let overlapFeatures = Array.from(segmentToFeatures[key]);
+							let overlapKey = overlapFeatures.sort().join(',');
+
+							if (currentOverlapKey === null) {
+								currentOverlapKey = overlapKey;
+							}
+
+							if (overlapKey !== currentOverlapKey) {
+								// Flush previous segment
+								let newFeat = structuredClone(feat);
+								newFeat.geometry = { type: 'LineString', coordinates: currentSegmentCoords };
+								newFeatures.push(newFeat);
+
+								// Start new segment
+								currentSegmentCoords = [line[k], line[k+1]];
+								currentOverlapKey = overlapKey;
+							} else {
+								// Continue segment
+								currentSegmentCoords.push(line[k+1]);
+							}
+						}
+						
+						// Flush last segment
+						if (currentSegmentCoords.length > 1) {
+							let newFeat = structuredClone(feat);
+							newFeat.geometry = { type: 'LineString', coordinates: currentSegmentCoords };
+							newFeatures.push(newFeat);
+						}
+					});
+				} else {
+					newFeatures.push(feat);
+				}
+			}
+			f.features = newFeatures;
+
+			// 3. Stagger segments
+			var lineGroups = {};
+			for (var i = 0; i < f.features.length; i++) {
+				var feat = f.features[i];
+				if (feat.geometry && feat.geometry.type === 'LineString') {
+					var coordKey = getNormalizedLineKey(feat.geometry.coordinates);
+					if (!lineGroups[coordKey]) lineGroups[coordKey] = [];
+					lineGroups[coordKey].push(feat);
+				}
+			}
+
 			// Stagger offsets for overlapping line groups (using Leaflet.PolylineOffset spacing)
 			var lineSpacing = 6; // pixels spacing between parallel lines
 			for (var key in lineGroups) {
 				var group = lineGroups[key];
 				if (group.length > 1) {
 					for (var j = 0; j < group.length; j++) {
+						group[j].properties._is_overlapping = true;
+						group[j].properties._overlap_count = group.length;
+
 						var multiplier = Math.floor((j + 1) / 2);
 						var sign = (j % 2 === 0) ? 1 : -1;
 						if (j === 0) {
@@ -306,6 +403,9 @@ window.addEventListener("load", function load(event){
 				var group = pointGroups[key];
 				if (group.length > 1) {
 					for (var j = 0; j < group.length; j++) {
+						group[j].properties._is_overlapping = true;
+						group[j].properties._overlap_count = group.length;
+
 						var angle = (j * 2 * Math.PI) / group.length;
 						group[j].properties.offset_x = Math.round(pointRadius * Math.cos(angle));
 						group[j].properties.offset_y = Math.round(pointRadius * Math.sin(angle));
@@ -373,12 +473,23 @@ window.addEventListener("load", function load(event){
 		    
 		    onEachFeature: function (feature, layer) {
 			var show_id = feature["properties"]["show:id"];
-			idToLayerMap[show_id] = layer;
+			if (!idToLayerMap[show_id]) {
+			    idToLayerMap[show_id] = [];
+			}
+			idToLayerMap[show_id].push(layer);
 
 			layer.on("click", function(e){			    
 			    clearMapHighlights();
 			    select(show_id);
 			});
+
+			var label_text = [];
+			
+			if (feature.properties && feature.properties._is_overlapping) {
+			    label_text.push("<strong>Overlapping:</strong> Yes (Count: " + feature.properties._overlap_count + ")");
+			}
+
+			let tooltipText = "";
 
 			if (map_cfg.leaflet) {
 			    
@@ -389,8 +500,6 @@ window.addEventListener("load", function load(event){
 				
 				if (count_props > 0) {
 				    
-				    var label_text = [];
-				    
 				    for (var i=0; i < count_props; i++){
 					
 					var prop = label_props[i];
@@ -399,19 +508,31 @@ window.addEventListener("load", function load(event){
 					label_text.push("<strong>" + prop + "</strong> " + value);
 				    }
 				    
-				    if (label_text.length > 0){ 
-					layer.bindPopup(label_text.join("<br />"));
-				    }
-
 				    const first = label_props[0];
 				    
 				    if ((first in feature.properties) && (feature.properties[first] != "")){
-					layer.bindTooltip(feature.properties[first]).openTooltip();
+				        tooltipText = feature.properties[first];
 				    }
 				}
 				
 			    }
 			    
+			}
+			
+			if (label_text.length > 0){ 
+			    layer.bindPopup(label_text.join("<br />"));
+			}
+
+			if (feature.properties && feature.properties._is_overlapping) {
+			    if (tooltipText !== "") {
+			        tooltipText = "[Overlapping: " + feature.properties._overlap_count + "] " + tooltipText;
+			    } else {
+			        tooltipText = "[Overlapping: " + feature.properties._overlap_count + "]";
+			    }
+			}
+
+			if (tooltipText !== "") {
+			    layer.bindTooltip(tooltipText).openTooltip();
 			}			
 		    }
 		};
@@ -480,11 +601,7 @@ window.addEventListener("load", function load(event){
 			// For standard markers, apply offset if defined
 			if (offsetX !== 0 || offsetY !== 0) {
 				const defaultIcon = new L.Icon.Default();
-				const shiftedIcon = L.icon({
-					iconUrl: defaultIcon.options.iconUrl,
-					iconRetinaUrl: defaultIcon.options.iconRetinaUrl,
-					shadowUrl: defaultIcon.options.shadowUrl,
-					iconSize: defaultIcon.options.iconSize,
+				const shiftedIcon = new L.Icon.Default({
 					iconAnchor: [
 						defaultIcon.options.iconAnchor[0] - offsetX,
 						defaultIcon.options.iconAnchor[1] - offsetY
@@ -493,7 +610,6 @@ window.addEventListener("load", function load(event){
 						defaultIcon.options.popupAnchor[0] - offsetX,
 						defaultIcon.options.popupAnchor[1] - offsetY
 					],
-					shadowSize: defaultIcon.options.shadowSize,
 					shadowAnchor: defaultIcon.options.shadowAnchor ? [
 						defaultIcon.options.shadowAnchor[0] - offsetX,
 						defaultIcon.options.shadowAnchor[1] - offsetY
@@ -714,6 +830,13 @@ window.addEventListener("load", function load(event){
                     f.properties.id = idInput;
                     if (nameInput) f.properties.name = nameInput;
                     if (colorInput) f.properties.color = colorInput;
+                    
+                    if (f.geometry) {
+                        f.properties.geometry_type = f.geometry.type;
+                        if (!f.properties.geometry_hex) {
+                            f.properties.geometry_hex = "N/A (Pasted GeoJSON)";
+                        }
+                    }
                 });
 
                 allFeatures = allFeatures.concat(featsToAdd);
